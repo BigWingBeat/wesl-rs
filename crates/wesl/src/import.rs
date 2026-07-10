@@ -120,138 +120,256 @@ impl Resolutions {
     }
 }
 
-fn err_with_module(e: Error, module: &Module, resolver: &impl Resolver) -> Error {
-    Error::from(
-        Diagnostic::from(e)
-            .with_module_path(module.path.clone(), resolver.display_name(&module.path)),
-    )
+fn err_with_module(e: Error, path: &ModulePath, resolver: &impl Resolver) -> Error {
+    Error::from(Diagnostic::from(e).with_module_path(path.clone(), resolver.display_name(path)))
 }
 
-/// get or load a module with the resolver.
-fn load_module<R: Resolver>(
-    path: &ModulePath,
-    resolutions: &mut Resolutions,
-    resolver: &R,
-    onload: &impl Fn(&Module, &mut Resolutions, &R) -> Result<(), Error>,
-) -> Result<Rc<RefCell<Module>>, Error> {
-    if let Some(module) = resolutions.modules.get(path) {
-        return Ok(module.clone());
-    }
-
-    let source = resolver.resolve_module(path)?;
-    load_module_with_source(source, path, resolutions, resolver, onload)
-}
-
-fn load_module_with_source<R: Resolver>(
+/// Register a new module: index its declarations and imports, link its identifiers.
+fn init_module(
     source: TranslationUnit,
     path: &ModulePath,
     resolutions: &mut Resolutions,
-    resolver: &R,
-    onload: &impl Fn(&Module, &mut Resolutions, &R) -> Result<(), Error>,
-) -> Result<Rc<RefCell<Module>>, Error> {
+) -> Rc<RefCell<Module>> {
     let module = Module::new(source, path.clone());
     let module = resolutions.push_module(module);
-
-    let imports = flatten_imports(&module.borrow().source.imports, path);
     {
         let mut module = module.borrow_mut();
-        module.imports = imports;
+        let module = &mut *module;
+        module.imports = flatten_imports(&module.source.imports, path);
         module.source.retarget_idents();
     }
-
-    {
-        let module = module.borrow();
-        onload(&module, resolutions, resolver)
-            .map_err(|e| err_with_module(e, &module, resolver))?;
-    }
-
-    Ok(module)
+    module
 }
 
-/// load the modules that a declaration (named by its identifier) refers to, recursively.
-/// the identifier must not be a builtin.
-fn resolve_decl<R: Resolver>(
-    module: &Module,
-    ident: &Ident,
+/// Get a module if it is already loaded, or load it with the resolver.
+/// The boolean is `true` if the module was not already loaded.
+///
+/// Resolution errors are attributed to the module that referenced the item (`from`).
+fn load_module(
+    path: &ModulePath,
+    from: &ModulePath,
     resolutions: &mut Resolutions,
-    resolver: &R,
-    onload: &impl Fn(&Module, &mut Resolutions, &R) -> Result<(), Error>,
-) -> Result<(), Error> {
+    resolver: &impl Resolver,
+) -> Result<(Rc<RefCell<Module>>, bool), Error> {
+    if let Some(module) = resolutions.modules.get(path) {
+        Ok((module.clone(), false))
+    } else {
+        let source = resolver
+            .resolve_module(path)
+            .map_err(|e| err_with_module(e.into(), from, resolver))?;
+        Ok((init_module(source, path, resolutions), true))
+    }
+}
+
+/// An item used by a module and declared in another module.
+#[derive(Clone, Debug)]
+struct ExtItem {
+    /// The module that uses the item (for error reporting).
+    from: ModulePath,
+    /// The module that declares the item.
+    path: ModulePath,
+    /// The name of the declaration in the external module.
+    ident: Ident,
+}
+
+/// A declaration from which usage analysis starts in a module.
+enum Entrypoint<'a> {
+    /// A declaration (or re-export) named by this identifier.
+    Ident(Ident),
+    /// An unnamed declaration (module-scope `const_assert`).
+    Decl(&'a GlobalDeclaration),
+}
+
+/// The entrypoints analyzed when a module is loaded: all declarations in eager mode,
+/// only module-scope `const_assert`s in lazy mode.
+///
+/// const_asserts of used modules must be included.
+/// <https://github.com/wgsl-tooling-wg/wesl-spec/issues/66>
+fn module_entrypoints(module: &Module, eager: bool) -> Vec<Entrypoint<'_>> {
+    module
+        .source
+        .global_declarations
+        .iter()
+        .filter_map(|decl| {
+            if let Some(ident) = decl.ident() {
+                eager.then_some(Entrypoint::Ident(ident))
+            } else if eager || decl.is_const_assert() {
+                Some(Entrypoint::Decl(decl.node()))
+            } else {
+                None
+            }
+        })
+        .collect_vec()
+}
+
+/// The type expressions in a declaration, in resolution order: nested type expressions
+/// come before the type expression that contains them.
+fn type_exprs(decl: &GlobalDeclaration) -> Vec<&TypeExpression> {
+    // pre-order with children visited right-to-left, reversed, is the left-to-right
+    // post-order we want.
+    let mut stack = Visit::<TypeExpression>::visit(decl).collect_vec();
+    let mut res = Vec::new();
+    while let Some(ty) = stack.pop() {
+        res.push(ty);
+        stack.extend(Visit::<TypeExpression>::visit(ty));
+    }
+    res.reverse();
+    res
+}
+
+/// Start analyzing the declaration (or re-export) named `ident` in a module.
+/// The identifier must not be a builtin.
+///
+/// If it names a local declaration not yet analyzed, the declaration is marked used and
+/// its type expressions are pushed onto `frames`. If it names a re-export
+/// (`@publish import`), the imported item is recorded in `ext_items`.
+fn use_decl<'a>(
+    module: &'a Module,
+    ident: &Ident,
+    frames: &mut Vec<std::vec::IntoIter<&'a TypeExpression>>,
+    ext_items: &mut Vec<ExtItem>,
+) -> Result<(), E> {
     if let Some((_, n)) = module.find_decl(ident) {
         let decl = module.source.global_declarations.get(*n).unwrap().node();
         if let Some(ident) = decl.ident()
             && !module.used_idents.borrow_mut().insert(ident)
         {
+            // already analyzed
             return Ok(());
         }
-
-        for ty in Visit::<TypeExpression>::visit(decl) {
-            resolve_ty(module, ty, resolutions, resolver, onload)?;
-        }
+        frames.push(type_exprs(decl).into_iter());
         Ok(())
     } else if let Some((_, item)) = module.find_import(ident) {
         // the declaration can be a re-export (`@publish import`)
         if item.public {
-            // load the external module for this imported item
-            let ext_mod = load_module(&item.path, resolutions, resolver, onload)?;
-            let ext_mod = ext_mod.borrow();
-            resolve_decl(&ext_mod, &item.ident, resolutions, resolver, onload)
-                .map_err(|e| err_with_module(e, &ext_mod, resolver))
+            ext_items.push(ExtItem {
+                from: module.path.clone(),
+                path: item.path.clone(),
+                ident: item.ident.clone(),
+            });
+            Ok(())
         } else {
-            Err(E::Private(ident.to_string(), module.path.clone()).into())
+            Err(E::Private(ident.to_string(), module.path.clone()))
         }
     } else {
-        Err(E::MissingDecl(module.path.clone(), ident.to_string()).into())
+        Err(E::MissingDecl(module.path.clone(), ident.to_string()))
     }
 }
 
-/// load the modules that a TypeExpression refers to, recursively.
-fn resolve_ty<R: Resolver>(
-    module: &Module,
-    ty: &TypeExpression,
-    resolutions: &mut Resolutions,
-    resolver: &R,
-    onload: &impl Fn(&Module, &mut Resolutions, &R) -> Result<(), Error>,
-) -> Result<(), Error> {
-    // first, the recursive call
-    for ty in Visit::<TypeExpression>::visit(ty) {
-        resolve_ty(module, ty, resolutions, resolver, onload)?;
+/// Compute the identifiers used by a module, starting from the given entrypoints,
+/// without loading external modules.
+///
+/// Local declarations transitively reached from the entrypoints are marked used (in
+/// `Module::used_idents`); declarations already marked by a previous call are skipped.
+/// Returns the used items that belong to external modules, in the order they are
+/// encountered. It is the caller's responsibility to resolve them (see [`load_modules`]).
+fn used_idents<'a>(
+    module: &'a Module,
+    entrypoints: impl IntoIterator<Item = Entrypoint<'a>>,
+) -> Result<Vec<ExtItem>, E> {
+    let mut ext_items = Vec::new();
+    // in-progress declaration traversals: pushing a frame is the iterative equivalent
+    // of descending into a referenced local declaration.
+    let mut frames: Vec<std::vec::IntoIter<&TypeExpression>> = Vec::new();
+
+    for entrypoint in entrypoints {
+        match entrypoint {
+            Entrypoint::Ident(ident) => use_decl(module, &ident, &mut frames, &mut ext_items)?,
+            Entrypoint::Decl(decl) => frames.push(type_exprs(decl).into_iter()),
+        }
+
+        while let Some(frame) = frames.last_mut() {
+            let Some(ty) = frame.next() else {
+                frames.pop();
+                continue;
+            };
+
+            // get the path and identifier referred to by the TypeExpression, if it is imported
+            let (ext_path, ext_id) = if let Some(path) = &ty.path {
+                let path = resolve_inline_path(path, &module.path, &module.imports);
+                (path, &ty.ident)
+            } else if let Some(item) = module.imports.get(&ty.ident) {
+                (item.path.clone(), &item.ident)
+            } else {
+                // This is a local declaration or a builtin, we mark the ident as used.
+                if module.idents.contains_key(&ty.ident) {
+                    use_decl(module, &ty.ident, &mut frames, &mut ext_items)?;
+                }
+                continue;
+            };
+
+            // if the import path points to a local declaration, we just check that it exists
+            // and we're done.
+            if ext_path == module.path {
+                if module.idents.contains_key(&ty.ident) {
+                    continue;
+                } else {
+                    return Err(E::MissingDecl(ext_path, ty.ident.to_string()));
+                }
+            }
+
+            ext_items.push(ExtItem {
+                from: module.path.clone(),
+                path: ext_path,
+                ident: ext_id.clone(),
+            });
+        }
     }
 
-    // get the path and identifier referred to by the TypeExpression, if it is imported
-    let (ext_path, ext_id) = if let Some(path) = &ty.path {
-        let path = resolve_inline_path(path, &module.path, &module.imports);
-        (path, &ty.ident)
-    } else if let Some(item) = module.imports.get(&ty.ident) {
-        (item.path.clone(), &item.ident)
-    } else {
-        // This is a local declaration or a builtin, we mark the ident as used.
-        if module.idents.contains_key(&ty.ident) {
-            resolve_decl(module, &ty.ident, resolutions, resolver, onload)?;
-        }
-        return Ok(());
-    };
-
-    // if the import path points to a local declaration, we just check that it exists
-    // and we're done.
-    if ext_path == module.path {
-        if module.idents.contains_key(&ty.ident) {
-            return Ok(());
-        } else {
-            return Err(E::MissingDecl(ext_path, ty.ident.to_string()).into());
-        }
-    }
-
-    // load the external module for this imported item
-    let ext_mod = load_module(&ext_path, resolutions, resolver, &onload)?;
-    let ext_mod = ext_mod.borrow();
-
-    // and ensure the declaration's dependencies are resolved too
-    resolve_decl(&ext_mod, ext_id, resolutions, resolver, onload)
-        .map_err(|e| err_with_module(e, &ext_mod, resolver))
+    Ok(ext_items)
 }
 
-// XXX: it's quite messy.
+/// Load the root module and, iteratively, all modules it uses, transitively.
+///
+/// If `keep` is `Some`, resolution is lazy: only the `keep` declarations of the root
+/// module (plus module-scope `const_assert`s) are entrypoints, and external modules are
+/// loaded only when one of their declarations is used. If `keep` is `None`, resolution
+/// is eager: all declarations of all loaded modules are entrypoints.
+fn load_modules(
+    source: TranslationUnit,
+    path: &ModulePath,
+    keep: Option<Vec<Ident>>,
+    resolver: &impl Resolver,
+) -> Result<Resolutions, Error> {
+    let eager = keep.is_none();
+    let mut resolutions = Resolutions::new_uninit();
+
+    // external items to resolve. Items are pushed in reverse and popped from the back,
+    // so modules are visited depth-first in the order items are encountered, like the
+    // former recursive implementation.
+    let mut stack = Vec::new();
+
+    // analyze the root module
+    let root = init_module(source, path, &mut resolutions);
+    {
+        let root = root.borrow();
+        let mut entrypoints = module_entrypoints(&root, eager);
+        entrypoints.extend(keep.into_iter().flatten().map(Entrypoint::Ident));
+        let ext_items = used_idents(&root, entrypoints)
+            .map_err(|e| err_with_module(e.into(), path, resolver))?;
+        stack.extend(ext_items.into_iter().rev());
+    }
+
+    // load and analyze modules until all used external items are resolved
+    while let Some(item) = stack.pop() {
+        let (module, is_new) = load_module(&item.path, &item.from, &mut resolutions, resolver)?;
+        let module = module.borrow();
+        // a newly loaded module has its own entrypoints, analyzed before the item that
+        // caused the load.
+        let mut entrypoints = if is_new {
+            module_entrypoints(&module, eager)
+        } else {
+            Vec::new()
+        };
+        entrypoints.push(Entrypoint::Ident(item.ident));
+        let ext_items = used_idents(&module, entrypoints)
+            .map_err(|e| err_with_module(e.into(), &module.path, resolver))?;
+        stack.extend(ext_items.into_iter().rev());
+    }
+
+    Ok(resolutions)
+}
+
 /// Load all modules "used" transitively by the root module. Make external idents point at
 /// the right declaration in the external module.
 ///
@@ -262,7 +380,7 @@ fn resolve_ty<R: Resolver>(
 /// may refer to declarations in unused modules, and mangling will panic.
 ///
 /// "used": used declarations in the root module are the `keep` parameter. Used declarations
-/// in other modules are those reached by `keep` declarations, recursively.
+/// in other modules are those reached by `keep` declarations, transitively.
 /// Module-scope `const_assert`s are always included.
 ///
 /// Returns a list of [`Module`]s with the list of their "used" idents.
@@ -274,40 +392,8 @@ pub fn resolve_lazy<'a>(
     path: &ModulePath,
     resolver: &impl Resolver,
 ) -> Result<Resolutions, Error> {
-    fn resolve_module(
-        module: &Module,
-        resolutions: &mut Resolutions,
-        resolver: &impl Resolver,
-    ) -> Result<(), Error> {
-        // const_asserts of used modules must be included.
-        // https://github.com/wgsl-tooling-wg/wesl-spec/issues/66
-        let const_asserts = module
-            .source
-            .global_declarations
-            .iter()
-            .filter(|decl| decl.is_const_assert());
-
-        for decl in const_asserts {
-            for ty in Visit::<TypeExpression>::visit(decl.node()) {
-                resolve_ty(module, ty, resolutions, resolver, &resolve_module)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    let mut resolutions = Resolutions::new_uninit();
-    let module =
-        load_module_with_source(source, path, &mut resolutions, resolver, &resolve_module)?;
-
-    {
-        let module = module.borrow();
-        for id in keep {
-            resolve_decl(&module, id, &mut resolutions, resolver, &resolve_module)
-                .map_err(|e| err_with_module(e, &module, resolver))?;
-        }
-    }
-
+    let keep = keep.into_iter().cloned().collect_vec();
+    let resolutions = load_modules(source, path, Some(keep), resolver)?;
     resolutions.retarget()?;
     Ok(resolutions)
 }
@@ -318,27 +404,7 @@ pub fn resolve_eager(
     path: &ModulePath,
     resolver: &impl Resolver,
 ) -> Result<Resolutions, Error> {
-    fn resolve_module(
-        module: &Module,
-        resolutions: &mut Resolutions,
-        resolver: &impl Resolver,
-    ) -> Result<(), Error> {
-        for decl in &module.source.global_declarations {
-            if let Some(ident) = decl.ident() {
-                resolve_decl(module, &ident, resolutions, resolver, &resolve_module)?;
-            } else {
-                for ty in Visit::<TypeExpression>::visit(decl.node()) {
-                    resolve_ty(module, ty, resolutions, resolver, &resolve_module)?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    let mut resolutions = Resolutions::new_uninit();
-    load_module_with_source(source, path, &mut resolutions, resolver, &resolve_module)?;
-
+    let resolutions = load_modules(source, path, None, resolver)?;
     resolutions.retarget()?;
     Ok(resolutions)
 }
