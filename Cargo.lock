@@ -163,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "buildrs_wesl"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "random_wgsl",
  "wesl",
@@ -966,7 +966,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "random_wgsl"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "wesl",
 ]
@@ -1011,7 +1011,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "runtime_wesl"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "random_wgsl",
  "wesl",
@@ -1548,7 +1548,7 @@ dependencies = [
 
 [[package]]
 name = "wesl"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "annotate-snippets",
  "anstream",
@@ -1571,7 +1571,7 @@ dependencies = [
 
 [[package]]
 name = "wesl-c"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "cbindgen",
  "wesl",
@@ -1579,7 +1579,7 @@ dependencies = [
 
 [[package]]
 name = "wesl-cli"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "clap",
  "naga",
@@ -1590,7 +1590,7 @@ dependencies = [
 
 [[package]]
 name = "wesl-macros"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "itertools 0.15.0",
  "proc-macro2",
@@ -1600,7 +1600,7 @@ dependencies = [
 
 [[package]]
 name = "wesl-quote"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "itertools 0.15.0",
  "proc-macro-error2",
@@ -1614,7 +1614,7 @@ dependencies = [
 
 [[package]]
 name = "wesl-test"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "bevy-wgsl",
  "insta",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "wesl-web"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "ansi-to-html",
  "console_error_panic_hook",
@@ -1646,7 +1646,7 @@ dependencies = [
 
 [[package]]
 name = "wgsl-parse"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "annotate-snippets",
  "derive_more",
@@ -1663,7 +1663,7 @@ dependencies = [
 
 [[package]]
 name = "wgsl-types"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "half",
  "itertools 0.15.0",
