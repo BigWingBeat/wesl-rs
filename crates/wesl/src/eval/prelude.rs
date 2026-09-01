@@ -307,6 +307,6 @@ pub static PRELUDE: LazyLock<TranslationUnit> = LazyLock::new(|| {
         // Naga ray tracing pipeline extension
         @extension(naga) fn traceRay() @__intrinsic {}
     };
-    crate::SyntaxUtil::retarget_idents(&mut module);
+    crate::pass::retarget_idents(&mut module);
     module
 });

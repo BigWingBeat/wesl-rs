@@ -1,12 +1,11 @@
 //! [`Instance`]s of WGSL [`Type`]s.
 
+use itertools::Itertools;
 use std::{
     cell::{Ref, RefCell, RefMut},
     ops::Index,
     rc::Rc,
 };
-
-use itertools::Itertools;
 
 use crate::{
     Error, f16,

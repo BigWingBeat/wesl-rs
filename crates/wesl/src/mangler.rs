@@ -1,3 +1,5 @@
+//! [`Mangler`] trait and implementations.
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -25,7 +27,7 @@ use super::ModulePath;
 /// * the item must be a valid WGSL identifier.
 ///
 /// # WESL Reference
-/// spec: [NameMangling.md](https://github.com/wgsl-tooling-wg/wesl-spec/blob/main/NameMangling.md)
+/// spec: [NameMangling.md](https://github.com/webgpu-tools/wesl-spec/blob/main/NameMangling.md)
 pub trait Mangler {
     /// Turn an import path and item name into a mangled WGSL identifier.
     fn mangle(&self, path: &ModulePath, item: &str) -> String;
@@ -51,7 +53,7 @@ impl<T: Mangler + ?Sized> Mangler for Box<T> {
     }
 }
 
-impl<T: Mangler> Mangler for &T {
+impl<T: Mangler + ?Sized> Mangler for &T {
     fn mangle(&self, path: &ModulePath, item: &str) -> String {
         (**self).mangle(path, item)
     }
