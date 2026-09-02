@@ -63,6 +63,7 @@ impl BuiltinIdent for Type {
             Type::Ref(_, _, _) => builtin_ident("__ref"),
             Type::Texture(texture_type) => texture_type.builtin_ident(),
             Type::Sampler(sampler_type) => sampler_type.builtin_ident(),
+            Type::Unknown => builtin_ident("__unknown"),
             #[cfg(feature = "naga-ext")]
             Type::I64 => builtin_ident("i64"),
             #[cfg(feature = "naga-ext")]
@@ -127,6 +128,8 @@ impl BuiltinIdent for SampledType {
             Self::I32 => builtin_ident("i32"),
             Self::U32 => builtin_ident("u32"),
             Self::F32 => builtin_ident("f32"),
+            #[cfg(feature = "naga-ext")]
+            Self::U64 => builtin_ident("u64"),
         }
     }
 }
@@ -141,8 +144,13 @@ impl BuiltinIdent for AddressSpace {
             Self::Uniform => builtin_ident("uniform"),
             Self::Storage => builtin_ident("storage"),
             Self::Handle => None,
-            #[cfg(feature = "naga-ext")]
             Self::Immediate => builtin_ident("immediate"),
+            #[cfg(feature = "naga-ext")]
+            Self::TaskPayload => builtin_ident("task_payload"),
+            #[cfg(feature = "naga-ext")]
+            Self::RayPayload => builtin_ident("ray_payload"),
+            #[cfg(feature = "naga-ext")]
+            Self::IncomingRayPayload => builtin_ident("incoming_ray_payload"),
         }
     }
 }

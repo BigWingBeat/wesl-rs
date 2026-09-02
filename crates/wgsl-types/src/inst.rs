@@ -1,16 +1,14 @@
 //! [`Instance`]s of WGSL [`Type`]s.
 
+use itertools::Itertools;
 use std::{
     cell::{Ref, RefCell, RefMut},
     ops::Index,
     rc::Rc,
 };
 
-use half::f16;
-use itertools::Itertools;
-
 use crate::{
-    Error,
+    Error, f16,
     syntax::{AccessMode, AddressSpace},
     ty::{StructType, Ty, Type},
 };

@@ -1,5 +1,7 @@
 //! Built-in type-generator and function templates.
 
+#[cfg(feature = "naga-ext")]
+use crate::syntax::AccelerationStructureTag;
 use crate::{
     Error,
     inst::{Instance, LiteralInstance},
@@ -205,9 +207,16 @@ impl PtrTemplate {
                     (AddressSpace::Handle, _) => {
                         unreachable!("handle address space cannot be spelled")
                     }
-                    #[cfg(feature = "naga-ext")]
                     (AddressSpace::Immediate, _) => {
                         todo!("immediate")
+                    }
+                    #[cfg(feature = "naga-ext")]
+                    (AddressSpace::TaskPayload, _) => {
+                        todo!("task_payload")
+                    }
+                    #[cfg(feature = "naga-ext")]
+                    (AddressSpace::RayPayload | AddressSpace::IncomingRayPayload, access) => {
+                        access.unwrap_or(AccessMode::ReadWrite)
                     }
                 };
                 Ok(PtrTemplate { space, ty, access })
@@ -344,5 +353,39 @@ impl BitcastTemplate {
     }
     pub fn inner_ty(&self) -> Type {
         self.ty.inner_ty()
+    }
+}
+
+#[cfg(feature = "naga-ext")]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AccelerationStructureTags {
+    tags: Vec<AccelerationStructureTag>,
+}
+
+#[cfg(feature = "naga-ext")]
+impl AccelerationStructureTags {
+    pub fn new(tags: Vec<AccelerationStructureTag>) -> Self {
+        Self { tags }
+    }
+
+    pub fn parse(tplt: &[TpltParam]) -> Result<Self, E> {
+        let tags = tplt
+            .iter()
+            .map(|param| match param {
+                TpltParam::Enumerant(Enumerant::AccelerationStructureTag(tag)) => Ok(*tag),
+                TpltParam::Instance(_) => Err(Error::Builtin(
+                    "expected an acceleration structure tag, not an instance",
+                )),
+                TpltParam::Type(_) => Err(Error::Builtin(
+                    "expected an acceleration structure tag, not a type",
+                )),
+                _ => Err(Error::Builtin("unknown acceleration structure tag")),
+            })
+            .collect::<Result<Vec<_>, E>>()?;
+        Ok(Self { tags })
+    }
+
+    pub fn tags(&self) -> &[AccelerationStructureTag] {
+        &self.tags
     }
 }

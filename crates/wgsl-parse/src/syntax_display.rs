@@ -38,7 +38,7 @@ impl Display for TranslationUnit {
         #[cfg(feature = "imports")]
         if !self.imports.is_empty() {
             for import in &self.imports {
-                writeln!(f, "import {import}\n")?;
+                writeln!(f, "{import}\n")?;
             }
         }
         if !self.global_directives.is_empty() {
@@ -65,11 +65,12 @@ impl Display for ImportStatement {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         #[cfg(feature = "attributes")]
         write!(f, "{}", fmt_attrs(&self.attributes, false))?;
-        if let Some(path) = &self.path {
-            write!(f, "{path}::")?;
-        }
         let content = &self.content;
-        write!(f, "{content};")
+        if let Some(path) = &self.path {
+            write!(f, "import {path}::{content};")
+        } else {
+            write!(f, "import {content};")
+        }
     }
 }
 
@@ -167,6 +168,8 @@ impl Display for GlobalDeclaration {
             GlobalDeclaration::Struct(print) => write!(f, "{print}"),
             GlobalDeclaration::Function(print) => write!(f, "{print}"),
             GlobalDeclaration::ConstAssert(print) => write!(f, "{print}"),
+            #[cfg(feature = "condcomp")]
+            GlobalDeclaration::Compound(print) => write!(f, "{print}"),
         }
     }
 }
@@ -266,6 +269,15 @@ impl Display for ConstAssert {
     }
 }
 
+#[cfg(feature = "condcomp")]
+impl Display for CompoundGlobalDeclaration {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", fmt_attrs(&self.attributes, false))?;
+        let stmts = Indent(self.body.iter().format("\n"));
+        write!(f, "{{\n{stmts}\n}}")
+    }
+}
+
 impl Display for Attribute {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
@@ -297,6 +309,22 @@ impl Display for Attribute {
             Attribute::Vertex => write!(f, "@vertex"),
             Attribute::Fragment => write!(f, "@fragment"),
             Attribute::Compute => write!(f, "@compute"),
+            #[cfg(feature = "naga-ext")]
+            Attribute::Task => write!(f, "@task"),
+            #[cfg(feature = "naga-ext")]
+            Attribute::Payload(p) => write!(f, "@payload({p})"),
+            #[cfg(feature = "naga-ext")]
+            Attribute::Mesh(m) => write!(f, "@mesh({m})"),
+            #[cfg(feature = "naga-ext")]
+            Attribute::RayGeneration => write!(f, "@ray_generation"),
+            #[cfg(feature = "naga-ext")]
+            Attribute::AnyHit => write!(f, "@any_hit"),
+            #[cfg(feature = "naga-ext")]
+            Attribute::ClosestHit => write!(f, "@closest_hit"),
+            #[cfg(feature = "naga-ext")]
+            Attribute::Miss => write!(f, "@miss"),
+            #[cfg(feature = "naga-ext")]
+            Attribute::IncomingPayload(p) => write!(f, "@incoming_payload({p})"),
             #[cfg(feature = "imports")]
             Attribute::Publish => write!(f, "@publish"),
             #[cfg(feature = "condcomp")]
@@ -677,7 +705,7 @@ impl Display for WhileStatement {
         write!(f, "{}", fmt_attrs(&self.attributes, false))?;
         let cond = &self.condition;
         let body = &self.body;
-        write!(f, "while ({cond}) {body}")
+        write!(f, "while {cond} {body}")
     }
 }
 

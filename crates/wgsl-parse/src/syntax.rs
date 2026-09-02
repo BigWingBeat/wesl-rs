@@ -202,6 +202,8 @@ pub enum GlobalDeclaration {
     Struct(Struct),
     Function(Function),
     ConstAssert(ConstAssert),
+    #[cfg(feature = "condcomp")]
+    Compound(CompoundGlobalDeclaration),
 }
 
 pub type GlobalDeclarationNode = Spanned<GlobalDeclaration>;
@@ -288,6 +290,15 @@ pub struct ConstAssert {
     pub expression: ExpressionNode,
 }
 
+#[cfg(feature = "condcomp")]
+#[cfg_attr(feature = "tokrepr", derive(TokRepr))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompoundGlobalDeclaration {
+    pub attributes: Attributes,
+    pub body: Vec<GlobalDeclarationNode>,
+}
+
 #[cfg_attr(feature = "tokrepr", derive(TokRepr))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
@@ -346,6 +357,22 @@ pub enum Attribute {
     Vertex,
     Fragment,
     Compute,
+    #[cfg(feature = "naga-ext")]
+    Task,
+    #[cfg(feature = "naga-ext")]
+    Payload(ExpressionNode),
+    #[cfg(feature = "naga-ext")]
+    Mesh(ExpressionNode),
+    #[cfg(feature = "naga-ext")]
+    RayGeneration,
+    #[cfg(feature = "naga-ext")]
+    AnyHit,
+    #[cfg(feature = "naga-ext")]
+    ClosestHit,
+    #[cfg(feature = "naga-ext")]
+    Miss,
+    #[cfg(feature = "naga-ext")]
+    IncomingPayload(ExpressionNode),
     #[cfg(feature = "imports")]
     Publish,
     #[cfg(feature = "condcomp")]
@@ -361,6 +388,30 @@ pub enum Attribute {
     EarlyDepthTest(Option<ConservativeDepth>),
     #[from]
     Custom(CustomAttribute),
+}
+
+impl Attribute {
+    pub fn is_entry_point(&self) -> bool {
+        match self {
+            Attribute::Vertex | Attribute::Fragment | Attribute::Compute => true,
+            #[cfg(feature = "naga-ext")]
+            Attribute::Task | Attribute::Mesh(_) => true,
+            #[cfg(feature = "naga-ext")]
+            Attribute::RayGeneration
+            | Attribute::AnyHit
+            | Attribute::ClosestHit
+            | Attribute::Miss => true,
+            _ => false,
+        }
+    }
+
+    #[cfg(feature = "condcomp")]
+    pub fn is_condcomp(&self) -> bool {
+        matches!(
+            self,
+            Attribute::If(_) | Attribute::Elif(_) | Attribute::Else
+        )
+    }
 }
 
 pub type AttributeNode = Spanned<Attribute>;

@@ -34,6 +34,8 @@ pub(crate) use ops::Compwise;
 
 use itertools::Itertools;
 
+#[cfg(feature = "naga-ext")]
+use crate::tplt::AccelerationStructureTags;
 use crate::{
     CallSignature, Error, Instance, ShaderStage,
     syntax::{BinaryOperator, UnaryOperator},
@@ -207,6 +209,7 @@ pub fn call_builtin_fn(
             call::atomicStore(a1, a2)?;
             return Ok(None);
         }
+        ("atomicAdd", None, [a1, a2]) => call::atomicAdd(a1, a2),
         ("atomicSub", None, [a1, a2]) => call::atomicSub(a1, a2),
         ("atomicMax", None, [a1, a2]) => call::atomicMax(a1, a2),
         ("atomicMin", None, [a1, a2]) => call::atomicMin(a1, a2),
@@ -214,7 +217,9 @@ pub fn call_builtin_fn(
         ("atomicOr", None, [a1, a2]) => call::atomicOr(a1, a2),
         ("atomicXor", None, [a1, a2]) => call::atomicXor(a1, a2),
         ("atomicExchange", None, [a1, a2]) => call::atomicExchange(a1, a2),
-        ("atomicCompareExchangeWeak", None, [a1, a2]) => call::atomicCompareExchangeWeak(a1, a2),
+        ("atomicCompareExchangeWeak", None, [a1, a2, a3]) => {
+            call::atomicCompareExchangeWeak(a1, a2, a3)
+        }
         // packing
         ("pack4x8snorm", None, [a]) => call::pack4x8snorm(a),
         ("pack4x8unorm", None, [a]) => call::pack4x8unorm(a),
@@ -268,7 +273,8 @@ pub fn call_ctor(ty: &Type, args: &[Instance], stage: ShaderStage) -> Result<Ins
             | Type::Ptr(_, _, _)
             | Type::Ref(_, _, _)
             | Type::Texture(_)
-            | Type::Sampler(_),
+            | Type::Sampler(_)
+            | Type::Unknown,
             _,
         ) => Err(E::NotConstructible(ty.clone())),
         #[cfg(feature = "naga-ext")]
@@ -381,8 +387,9 @@ pub fn builtin_type(name: &str, tplt: Option<&[TpltParam]>) -> Result<Type, E> {
             #[cfg(feature = "naga-ext")]
             "ray_query" => Ok(Type::RayQuery(None)),
             #[cfg(feature = "naga-ext")]
+            // requires enable extensions
             "acceleration_structure" => Ok(Type::AccelerationStructure(Some(
-                crate::syntax::AccelerationStructureFlags::VertexReturn,
+                AccelerationStructureTags::parse(t)?,
             ))),
 
             _ => Err(E::UnexpectedTemplate(name.to_string())),

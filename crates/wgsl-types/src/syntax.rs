@@ -26,8 +26,17 @@ pub enum AddressSpace {
     Uniform,
     Storage,
     Handle, // the handle address space cannot be spelled in WGSL.
-    #[cfg(feature = "naga-ext")]
     Immediate,
+    #[cfg(feature = "naga-ext")]
+    TaskPayload,
+    /// Ray tracing pipeline payload, passed to `traceRay`.
+    #[cfg(feature = "naga-ext")]
+    RayPayload,
+    /// Ray tracing pipeline payload, received by entry points invoked by `traceRay`.
+    ///
+    /// An entry point may reference at most one variable in this address space.
+    #[cfg(feature = "naga-ext")]
+    IncomingRayPayload,
 }
 
 impl AddressSpace {
@@ -39,8 +48,11 @@ impl AddressSpace {
             AddressSpace::Uniform => AccessMode::Read,
             AddressSpace::Storage => AccessMode::Read,
             AddressSpace::Handle => AccessMode::Read,
-            #[cfg(feature = "naga-ext")]
             AddressSpace::Immediate => AccessMode::Read,
+            #[cfg(feature = "naga-ext")]
+            AddressSpace::TaskPayload => AccessMode::ReadWrite,
+            #[cfg(feature = "naga-ext")]
+            AddressSpace::RayPayload | AddressSpace::IncomingRayPayload => AccessMode::ReadWrite,
         }
     }
 }
@@ -138,7 +150,7 @@ pub enum TexelFormat {
 #[cfg_attr(feature = "tokrepr", derive(TokRepr))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum AccelerationStructureFlags {
+pub enum AccelerationStructureTag {
     VertexReturn,
 }
 
@@ -151,7 +163,7 @@ pub enum Enumerant {
     AddressSpace(AddressSpace),
     TexelFormat(TexelFormat),
     #[cfg(feature = "naga-ext")]
-    AccelerationStructureFlags(AccelerationStructureFlags),
+    AccelerationStructureTag(AccelerationStructureTag),
 }
 
 impl FromStr for Enumerant {
@@ -164,7 +176,7 @@ impl FromStr for Enumerant {
             .or_else(|()| TexelFormat::from_str(s).map(Enumerant::TexelFormat));
         #[cfg(feature = "naga-ext")]
         let res = res.or_else(|()| {
-            AccelerationStructureFlags::from_str(s).map(Enumerant::AccelerationStructureFlags)
+            AccelerationStructureTag::from_str(s).map(Enumerant::AccelerationStructureTag)
         });
         res
     }
@@ -213,6 +225,63 @@ pub enum BuiltinValue {
     /// requires WGSL extension barycentric
     #[cfg(feature = "naga-ext")]
     ViewIndex,
+
+    // Mesh shaders
+    #[cfg(feature = "naga-ext")]
+    MeshTaskSize,
+    #[cfg(feature = "naga-ext")]
+    Vertices,
+    #[cfg(feature = "naga-ext")]
+    Primitives,
+    #[cfg(feature = "naga-ext")]
+    VertexCount,
+    #[cfg(feature = "naga-ext")]
+    PrimitiveCount,
+    #[cfg(feature = "naga-ext")]
+    TriangleIndices,
+    #[cfg(feature = "naga-ext")]
+    CullPrimitive,
+
+    // Ray tracing pipelines
+    /// `vec3<u32>`, available in all ray tracing stages.
+    #[cfg(feature = "naga-ext")]
+    RayInvocationId,
+    /// `vec3<u32>`, available in all ray tracing stages.
+    #[cfg(feature = "naga-ext")]
+    NumRayInvocations,
+    /// `u32`, available in the `any_hit` and `closest_hit` stages.
+    #[cfg(feature = "naga-ext")]
+    InstanceCustomData,
+    /// `u32`, available in the `any_hit` and `closest_hit` stages.
+    #[cfg(feature = "naga-ext")]
+    GeometryIndex,
+    /// `vec3<f32>`, available in the `any_hit`, `closest_hit` and `miss` stages.
+    #[cfg(feature = "naga-ext")]
+    WorldRayOrigin,
+    /// `vec3<f32>`, available in the `any_hit`, `closest_hit` and `miss` stages.
+    #[cfg(feature = "naga-ext")]
+    WorldRayDirection,
+    /// `vec3<f32>`, available in the `any_hit` and `closest_hit` stages.
+    #[cfg(feature = "naga-ext")]
+    ObjectRayOrigin,
+    /// `vec3<f32>`, available in the `any_hit` and `closest_hit` stages.
+    #[cfg(feature = "naga-ext")]
+    ObjectRayDirection,
+    /// `f32`, available in the `any_hit`, `closest_hit` and `miss` stages.
+    #[cfg(feature = "naga-ext")]
+    RayTMin,
+    /// `f32`, available in the `any_hit`, `closest_hit` and `miss` stages.
+    #[cfg(feature = "naga-ext")]
+    RayTCurrentMax,
+    /// `mat4x3<f32>`, available in the `any_hit` and `closest_hit` stages.
+    #[cfg(feature = "naga-ext")]
+    ObjectToWorld,
+    /// `mat4x3<f32>`, available in the `any_hit` and `closest_hit` stages.
+    #[cfg(feature = "naga-ext")]
+    WorldToObject,
+    /// `u32`, available in the `any_hit` and `closest_hit` stages.
+    #[cfg(feature = "naga-ext")]
+    HitKind,
 }
 
 /// Diagnostic Severity Control Names.
@@ -386,6 +455,9 @@ pub enum SampledType {
     I32,
     U32,
     F32,
+    #[cfg(feature = "naga-ext")]
+    /// r64uint
+    U64,
 }
 
 impl TexelFormat {
@@ -451,7 +523,7 @@ impl TexelFormat {
             #[cfg(feature = "naga-ext")]
             TexelFormat::Rg11b10Float => SampledType::F32,
             #[cfg(feature = "naga-ext")]
-            TexelFormat::R64Uint => SampledType::U32,
+            TexelFormat::R64Uint => SampledType::U64,
             #[cfg(feature = "naga-ext")]
             TexelFormat::Rgba16Unorm => SampledType::F32,
             #[cfg(feature = "naga-ext")]
@@ -544,8 +616,13 @@ impl FromStr for AddressSpace {
             "workgroup" => Ok(Self::Workgroup),
             "uniform" => Ok(Self::Uniform),
             "storage" => Ok(Self::Storage),
-            #[cfg(feature = "naga-ext")]
             "immediate" => Ok(Self::Immediate),
+            #[cfg(feature = "naga-ext")]
+            "task_payload" => Ok(Self::TaskPayload),
+            #[cfg(feature = "naga-ext")]
+            "ray_payload" => Ok(Self::RayPayload),
+            #[cfg(feature = "naga-ext")]
+            "incoming_ray_payload" => Ok(Self::IncomingRayPayload),
             // "WGSL predeclares an enumerant for each address space, except for the handle address space."
             // "handle" => Ok(Self::Handle),
             _ => Err(()),
@@ -644,7 +721,7 @@ impl FromStr for TexelFormat {
 }
 
 #[cfg(feature = "naga-ext")]
-impl FromStr for AccelerationStructureFlags {
+impl FromStr for AccelerationStructureTag {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -701,6 +778,46 @@ impl FromStr for BuiltinValue {
             "barycentric_no_perspective" => Ok(Self::BarycentricNoPerspective),
             #[cfg(feature = "naga-ext")]
             "view_index" => Ok(Self::ViewIndex),
+            #[cfg(feature = "naga-ext")]
+            "mesh_task_size" => Ok(Self::MeshTaskSize),
+            #[cfg(feature = "naga-ext")]
+            "vertices" => Ok(Self::Vertices),
+            #[cfg(feature = "naga-ext")]
+            "primitives" => Ok(Self::Primitives),
+            #[cfg(feature = "naga-ext")]
+            "vertex_count" => Ok(Self::VertexCount),
+            #[cfg(feature = "naga-ext")]
+            "primitive_count" => Ok(Self::PrimitiveCount),
+            #[cfg(feature = "naga-ext")]
+            "triangle_indices" => Ok(Self::TriangleIndices),
+            #[cfg(feature = "naga-ext")]
+            "cull_primitive" => Ok(Self::CullPrimitive),
+            #[cfg(feature = "naga-ext")]
+            "ray_invocation_id" => Ok(Self::RayInvocationId),
+            #[cfg(feature = "naga-ext")]
+            "num_ray_invocations" => Ok(Self::NumRayInvocations),
+            #[cfg(feature = "naga-ext")]
+            "instance_custom_data" => Ok(Self::InstanceCustomData),
+            #[cfg(feature = "naga-ext")]
+            "geometry_index" => Ok(Self::GeometryIndex),
+            #[cfg(feature = "naga-ext")]
+            "world_ray_origin" => Ok(Self::WorldRayOrigin),
+            #[cfg(feature = "naga-ext")]
+            "world_ray_direction" => Ok(Self::WorldRayDirection),
+            #[cfg(feature = "naga-ext")]
+            "object_ray_origin" => Ok(Self::ObjectRayOrigin),
+            #[cfg(feature = "naga-ext")]
+            "object_ray_direction" => Ok(Self::ObjectRayDirection),
+            #[cfg(feature = "naga-ext")]
+            "ray_t_min" => Ok(Self::RayTMin),
+            #[cfg(feature = "naga-ext")]
+            "ray_t_current_max" => Ok(Self::RayTCurrentMax),
+            #[cfg(feature = "naga-ext")]
+            "object_to_world" => Ok(Self::ObjectToWorld),
+            #[cfg(feature = "naga-ext")]
+            "world_to_object" => Ok(Self::WorldToObject),
+            #[cfg(feature = "naga-ext")]
+            "hit_kind" => Ok(Self::HitKind),
             _ => Err(()),
         }
     }
@@ -774,8 +891,13 @@ impl Display for AddressSpace {
             Self::Uniform => write!(f, "uniform"),
             Self::Storage => write!(f, "storage"),
             Self::Handle => write!(f, "handle"),
-            #[cfg(feature = "naga-ext")]
             Self::Immediate => write!(f, "immediate"),
+            #[cfg(feature = "naga-ext")]
+            Self::TaskPayload => write!(f, "task_payload"),
+            #[cfg(feature = "naga-ext")]
+            Self::RayPayload => write!(f, "ray_payload"),
+            #[cfg(feature = "naga-ext")]
+            Self::IncomingRayPayload => write!(f, "incoming_ray_payload"),
         }
     }
 }
@@ -865,7 +987,7 @@ impl Display for TexelFormat {
 }
 
 #[cfg(feature = "naga-ext")]
-impl Display for AccelerationStructureFlags {
+impl Display for AccelerationStructureTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::VertexReturn => write!(f, "vertex_return"),
@@ -903,6 +1025,46 @@ impl Display for BuiltinValue {
             Self::BarycentricNoPerspective => write!(f, "barycentric_no_perspective"),
             #[cfg(feature = "naga-ext")]
             Self::ViewIndex => write!(f, "view_index"),
+            #[cfg(feature = "naga-ext")]
+            Self::MeshTaskSize => write!(f, "mesh_task_size"),
+            #[cfg(feature = "naga-ext")]
+            Self::Vertices => write!(f, "vertices"),
+            #[cfg(feature = "naga-ext")]
+            Self::Primitives => write!(f, "primitives"),
+            #[cfg(feature = "naga-ext")]
+            Self::VertexCount => write!(f, "vertex_count"),
+            #[cfg(feature = "naga-ext")]
+            Self::PrimitiveCount => write!(f, "primitive_count"),
+            #[cfg(feature = "naga-ext")]
+            Self::TriangleIndices => write!(f, "triangle_indices"),
+            #[cfg(feature = "naga-ext")]
+            Self::CullPrimitive => write!(f, "cull_primitive"),
+            #[cfg(feature = "naga-ext")]
+            Self::RayInvocationId => write!(f, "ray_invocation_id"),
+            #[cfg(feature = "naga-ext")]
+            Self::NumRayInvocations => write!(f, "num_ray_invocations"),
+            #[cfg(feature = "naga-ext")]
+            Self::InstanceCustomData => write!(f, "instance_custom_data"),
+            #[cfg(feature = "naga-ext")]
+            Self::GeometryIndex => write!(f, "geometry_index"),
+            #[cfg(feature = "naga-ext")]
+            Self::WorldRayOrigin => write!(f, "world_ray_origin"),
+            #[cfg(feature = "naga-ext")]
+            Self::WorldRayDirection => write!(f, "world_ray_direction"),
+            #[cfg(feature = "naga-ext")]
+            Self::ObjectRayOrigin => write!(f, "object_ray_origin"),
+            #[cfg(feature = "naga-ext")]
+            Self::ObjectRayDirection => write!(f, "object_ray_direction"),
+            #[cfg(feature = "naga-ext")]
+            Self::RayTMin => write!(f, "ray_t_min"),
+            #[cfg(feature = "naga-ext")]
+            Self::RayTCurrentMax => write!(f, "ray_t_current_max"),
+            #[cfg(feature = "naga-ext")]
+            Self::ObjectToWorld => write!(f, "object_to_world"),
+            #[cfg(feature = "naga-ext")]
+            Self::WorldToObject => write!(f, "world_to_object"),
+            #[cfg(feature = "naga-ext")]
+            Self::HitKind => write!(f, "hit_kind"),
         }
     }
 }
@@ -988,7 +1150,7 @@ impl Display for AssignmentOperator {
 impl Display for ConservativeDepth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::GreaterEqual => write!(f, "Greater_equal"),
+            Self::GreaterEqual => write!(f, "greater_equal"),
             Self::LessEqual => write!(f, "less_equal"),
             Self::Unchanged => write!(f, "unchanged"),
         }
@@ -1012,6 +1174,8 @@ impl Display for SampledType {
             SampledType::I32 => write!(f, "i32"),
             SampledType::U32 => write!(f, "u32"),
             SampledType::F32 => write!(f, "f32"),
+            #[cfg(feature = "naga-ext")]
+            SampledType::U64 => write!(f, "u64"),
         }
     }
 }

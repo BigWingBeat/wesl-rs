@@ -116,7 +116,7 @@ impl Display for Enumerant {
             Enumerant::AddressSpace(address_space) => write!(f, "{address_space}"),
             Enumerant::TexelFormat(texel_format) => write!(f, "{texel_format}"),
             #[cfg(feature = "naga-ext")]
-            Enumerant::AccelerationStructureFlags(flags) => write!(f, "{flags}"),
+            Enumerant::AccelerationStructureTag(tag) => write!(f, "{tag}"),
         }
     }
 }
@@ -189,6 +189,7 @@ impl Display for Type {
             Type::Ref(a_s, ty, a_m) => write!(f, "ref<{a_s}, {ty}, {a_m}>"),
             Type::Texture(texture_type) => texture_type.fmt(f),
             Type::Sampler(sampler_type) => sampler_type.fmt(f),
+            Type::Unknown => write!(f, "unknown"),
             #[cfg(feature = "naga-ext")]
             Type::I64 => write!(f, "i64"),
             #[cfg(feature = "naga-ext")]
@@ -202,12 +203,30 @@ impl Display for Type {
             #[cfg(feature = "naga-ext")]
             Type::RayQuery(None) => write!(f, "ray_query"),
             #[cfg(feature = "naga-ext")]
-            Type::RayQuery(Some(_)) => write!(f, "ray_query<vertex_return>"),
+            Type::RayQuery(Some(tags)) => {
+                write!(f, "ray_query<")?;
+                for (index, tag) in tags.tags().iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{tag}")?;
+                }
+                write!(f, ">")?;
+                Ok(())
+            }
             #[cfg(feature = "naga-ext")]
             Type::AccelerationStructure(None) => write!(f, "acceleration_structure"),
             #[cfg(feature = "naga-ext")]
-            Type::AccelerationStructure(Some(_)) => {
-                write!(f, "acceleration_structure<vertex_return>")
+            Type::AccelerationStructure(Some(tags)) => {
+                write!(f, "acceleration_structure<")?;
+                for (index, tag) in tags.tags().iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{tag}")?;
+                }
+                write!(f, ">")?;
+                Ok(())
             }
         }
     }

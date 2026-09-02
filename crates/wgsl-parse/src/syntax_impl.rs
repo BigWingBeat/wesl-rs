@@ -1,3 +1,5 @@
+use wgsl_types::inst::LiteralInstance;
+
 use super::syntax::*;
 use crate::span::Spanned;
 
@@ -17,6 +19,88 @@ impl TranslationUnit {
                     true
                 }
             })
+    }
+
+    pub fn sort_declarations(&mut self) {
+        use std::cmp::Ordering::*;
+        type Decl = GlobalDeclaration;
+        self.global_declarations
+            .sort_unstable_by(|a, b| match (a.node(), b.node()) {
+                #[cfg(feature = "condcomp")]
+                (Decl::Compound(_), Decl::Compound(_)) => Equal,
+                #[cfg(feature = "condcomp")]
+                (Decl::Compound(_), _) => Less,
+                #[cfg(feature = "condcomp")]
+                (_, Decl::Compound(_)) => Greater,
+
+                (Decl::Void, Decl::Void) => Equal,
+                (Decl::Void, Decl::Declaration(_)) => Less,
+                (Decl::Void, Decl::Struct(_)) => Less,
+                (Decl::Void, Decl::TypeAlias(_)) => Less,
+                (Decl::Void, Decl::ConstAssert(_)) => Less,
+                (Decl::Void, Decl::Function(_)) => Less,
+
+                (Decl::Declaration(_), Decl::Void) => Greater,
+                (Decl::Declaration(d1), Decl::Declaration(d2)) => {
+                    // sort in this order: const < override < let < var
+                    // then sort by name.
+                    match (d1.kind, d2.kind) {
+                        (DeclarationKind::Const, DeclarationKind::Const)
+                        | (DeclarationKind::Override, DeclarationKind::Override)
+                        | (DeclarationKind::Let, DeclarationKind::Let)
+                        | (DeclarationKind::Var(_), DeclarationKind::Var(_)) => {
+                            d1.ident.name().cmp(&d2.ident.name())
+                        }
+                        (DeclarationKind::Const, DeclarationKind::Override) => Less,
+                        (DeclarationKind::Const, DeclarationKind::Let) => Less,
+                        (DeclarationKind::Const, DeclarationKind::Var(_)) => Less,
+                        (DeclarationKind::Override, DeclarationKind::Const) => Greater,
+                        (DeclarationKind::Override, DeclarationKind::Let) => Less,
+                        (DeclarationKind::Override, DeclarationKind::Var(_)) => Less,
+                        (DeclarationKind::Let, DeclarationKind::Const) => Greater,
+                        (DeclarationKind::Let, DeclarationKind::Override) => Greater,
+                        (DeclarationKind::Let, DeclarationKind::Var(_)) => Less,
+                        (DeclarationKind::Var(_), DeclarationKind::Const) => Greater,
+                        (DeclarationKind::Var(_), DeclarationKind::Override) => Greater,
+                        (DeclarationKind::Var(_), DeclarationKind::Let) => Greater,
+                    }
+                }
+                (Decl::Declaration(_), Decl::Struct(_)) => Less,
+                (Decl::Declaration(_), Decl::TypeAlias(_)) => Less,
+                (Decl::Declaration(_), Decl::ConstAssert(_)) => Less,
+                (Decl::Declaration(_), Decl::Function(_)) => Less,
+
+                (Decl::Struct(_), Decl::Void) => Greater,
+                (Decl::Struct(_), Decl::Declaration(_)) => Greater,
+                (Decl::Struct(d1), Decl::Struct(d2)) => d1.ident.name().cmp(&d2.ident.name()),
+                (Decl::Struct(_), Decl::TypeAlias(_)) => Less,
+                (Decl::Struct(_), Decl::ConstAssert(_)) => Less,
+                (Decl::Struct(_), Decl::Function(_)) => Less,
+
+                (Decl::TypeAlias(_), Decl::Void) => Greater,
+                (Decl::TypeAlias(_), Decl::Declaration(_)) => Greater,
+                (Decl::TypeAlias(_), Decl::Struct(_)) => Greater,
+                (Decl::TypeAlias(d1), Decl::TypeAlias(d2)) => d1.ident.name().cmp(&d2.ident.name()),
+                (Decl::TypeAlias(_), Decl::ConstAssert(_)) => Less,
+                (Decl::TypeAlias(_), Decl::Function(_)) => Less,
+
+                (Decl::ConstAssert(_), Decl::Void) => Greater,
+                (Decl::ConstAssert(_), Decl::Declaration(_)) => Greater,
+                (Decl::ConstAssert(_), Decl::Struct(_)) => Greater,
+                (Decl::ConstAssert(_), Decl::TypeAlias(_)) => Greater,
+                (Decl::ConstAssert(c1), Decl::ConstAssert(c2)) => {
+                    // const_assert have no identifiers, we compare the stringification
+                    c1.to_string().cmp(&c2.to_string())
+                }
+                (Decl::ConstAssert(_), Decl::Function(_)) => Less,
+
+                (Decl::Function(_), Decl::Void) => Greater,
+                (Decl::Function(_), Decl::Declaration(_)) => Greater,
+                (Decl::Function(_), Decl::Struct(_)) => Greater,
+                (Decl::Function(_), Decl::TypeAlias(_)) => Greater,
+                (Decl::Function(_), Decl::ConstAssert(_)) => Greater,
+                (Decl::Function(d1), Decl::Function(d2)) => d1.ident.name().cmp(&d2.ident.name()),
+            });
     }
 }
 
@@ -43,9 +127,9 @@ impl ModulePath {
     /// * Paths with a root (leading `/` on Unix) produce `package::` paths.
     /// * Relative paths (starting with `.` or `..`) produce `self::` or `super::` paths.
     /// * The file extension is ignored.
-    /// * The path is canonicalized and to do so it does NOT follow symlinks.
     ///
-    /// Preconditions:
+    /// # Panics
+    ///
     /// * The path must not start with a prefix, like C:\ on windows.
     /// * The path must contain at least one named component.
     /// * Named components must be valid module names.
@@ -73,12 +157,20 @@ impl ModulePath {
             None => panic!("path is empty"),
         };
 
-        let components = parts
-            .map(|part| match part {
-                Component::Normal(name) => name.to_string_lossy().to_string(),
-                _ => panic!("unexpected path component"),
-            })
-            .collect::<Vec<_>>();
+        let mut components = Vec::new();
+        for part in parts {
+            match part {
+                Component::Prefix(_) | Component::RootDir => panic!("unexpected path component"),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    components.pop().expect("path escapes its origin");
+                    // TODO: if we escape the root we should insert a `super::`
+                }
+                Component::Normal(name) => {
+                    components.push(name.to_string_lossy().to_string());
+                }
+            }
+        }
 
         Self { origin, components }
     }
@@ -448,6 +540,26 @@ impl Statement {
     }
 }
 
+impl From<LiteralExpression> for LiteralInstance {
+    fn from(lit: LiteralExpression) -> Self {
+        match lit {
+            LiteralExpression::Bool(l) => LiteralInstance::Bool(l),
+            LiteralExpression::AbstractInt(l) => LiteralInstance::AbstractInt(l),
+            LiteralExpression::AbstractFloat(l) => LiteralInstance::AbstractFloat(l),
+            LiteralExpression::I32(l) => LiteralInstance::I32(l),
+            LiteralExpression::U32(l) => LiteralInstance::U32(l),
+            LiteralExpression::F32(l) => LiteralInstance::F32(l),
+            LiteralExpression::F16(l) => LiteralInstance::F16(wgsl_types::f16::from_f32(l)),
+            #[cfg(feature = "naga-ext")]
+            LiteralExpression::I64(l) => LiteralInstance::I64(l),
+            #[cfg(feature = "naga-ext")]
+            LiteralExpression::U64(l) => LiteralInstance::U64(l),
+            #[cfg(feature = "naga-ext")]
+            LiteralExpression::F64(l) => LiteralInstance::F64(l),
+        }
+    }
+}
+
 impl From<Ident> for TypeExpression {
     fn from(ident: Ident) -> Self {
         Self::new(ident)
@@ -577,6 +689,7 @@ macro_rules! impl_attrs_struct {
     };
 }
 
+#[allow(unused)]
 macro_rules! impl_attrs_enum {
     ($($variant: path),* $(,)?) => {
         fn attributes(&self) -> &[AttributeNode] {
@@ -651,10 +764,22 @@ impl SyntaxNode for GlobalDeclaration {
             GlobalDeclaration::Struct(decl) => Some(decl.ident.clone()),
             GlobalDeclaration::Function(decl) => Some(decl.ident.clone()),
             GlobalDeclaration::ConstAssert(_) => None,
+            #[cfg(feature = "condcomp")]
+            GlobalDeclaration::Compound(_) => None,
         }
     }
 
-    #[cfg(feature = "attributes")]
+    #[cfg(all(feature = "attributes", feature = "condcomp"))]
+    impl_attrs_enum! {
+        GlobalDeclaration::Declaration,
+        GlobalDeclaration::TypeAlias,
+        GlobalDeclaration::Struct,
+        GlobalDeclaration::Function,
+        GlobalDeclaration::ConstAssert,
+        GlobalDeclaration::Compound,
+    }
+
+    #[cfg(all(feature = "attributes", not(feature = "condcomp")))]
     impl_attrs_enum! {
         GlobalDeclaration::Declaration,
         GlobalDeclaration::TypeAlias,

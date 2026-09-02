@@ -27,20 +27,20 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.4"
 edition = "2024"
-rust-version = "1.96.0"
-repository = "https://github.com/wgsl-tooling-wg/wesl-rs"
+rust-version = "1.97.1"
+repository = "https://github.com/webgpu-tools/wesl-rs"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 tokrepr = { path = "crates/tokrepr", version = "0.1.0" }
 tokrepr-derive = { path = "crates/tokrepr-derive", version = "0.1.0" }
-wesl = { path = "crates/wesl", version = "0.4.0" }
-wesl-macros = { path = "crates/wesl-macros", version = "0.4.0" }
-wesl-quote = { path = "crates/wesl-quote", version = "0.4.0" }
-wgsl-parse = { path = "crates/wgsl-parse", version = "0.4.0" }
-wgsl-types = { path = "crates/wgsl-types", version = "0.4.0" }
+wesl = { path = "crates/wesl", version = "0.4.4" }
+wesl-macros = { path = "crates/wesl-macros", version = "0.4.4" }
+wesl-quote = { path = "crates/wesl-quote", version = "0.4.4" }
+wgsl-parse = { path = "crates/wgsl-parse", version = "0.4.4" }
+wgsl-types = { path = "crates/wgsl-types", version = "0.4.4" }
 
 [workspace.lints.clippy]
 # TODO: change eventually
@@ -51,5 +51,5 @@ mutable_key_type = "allow"
 [patch.crates-io]
 wesl = { path = "crates/wesl" }
 
-# [patch.'https://github.com/wgsl-tooling-wg/bevy-wgsl']
+# [patch.'https://github.com/webgpu-tools/bevy-wgsl']
 # bevy-wgsl = { path = "../bevy-wgsl" }

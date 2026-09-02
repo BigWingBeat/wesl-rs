@@ -11,13 +11,13 @@
 //! * User-defined functions can shadow WGSL built-in functions.
 //! * Type aliases must be resolved: WGSL allows calling functions with the name of the alias.
 
-use half::prelude::*;
 use itertools::Itertools;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
 
 use crate::{
     CallSignature, Error, ShaderStage,
     conv::{Convert, convert_all, convert_all_inner_to, convert_all_to, convert_all_ty},
+    f16,
     inst::{ArrayInstance, Instance, LiteralInstance, MatInstance, StructInstance, VecInstance},
     tplt::{ArrayTemplate, MatTemplate, TpltParam, VecTemplate},
     ty::{StructType, Ty, Type},
@@ -381,7 +381,7 @@ pub fn mat(c: usize, r: usize, args: &[Instance]) -> Result<Instance, E> {
 
         if inner_ty.is_abstract_int() {
             // force conversion from AbstractInt to a float type
-            inner_ty = Type::F32;
+            inner_ty = Type::AbstractFloat;
         } else if !inner_ty.is_float() {
             return Err(E::Builtin(
                 "matrix constructor expects float or vector of float arguments",
@@ -680,7 +680,7 @@ fn mat_ctor_ty(c: u8, r: u8, args: &[Type]) -> Result<Type, E> {
 
         if inner_ty.is_abstract_int() {
             // force conversion from AbstractInt to a float type
-            inner_ty = Type::F32;
+            inner_ty = Type::AbstractFloat;
         } else if !inner_ty.is_float() {
             return Err(E::Builtin(
                 "matrix constructor expects float or vector of float arguments",
@@ -904,7 +904,9 @@ impl Instance {
             | Type::Ptr(_, _, _)
             | Type::Ref(_, _, _)
             | Type::Texture(_)
-            | Type::Sampler(_) => Err(E::NotConstructible(ty.clone())),
+            | Type::Sampler(_)
+            | Type::Unknown => Err(E::NotConstructible(ty.clone())),
+
             #[cfg(feature = "naga-ext")]
             Type::I64 => Ok(LiteralInstance::I64(0).into()),
             #[cfg(feature = "naga-ext")]

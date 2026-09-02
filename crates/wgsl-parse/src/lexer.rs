@@ -136,10 +136,8 @@ fn parse_dec_f32(lex: &mut logos::Lexer<Token>) -> Option<f32> {
 
 fn parse_hex_f32(lex: &mut logos::Lexer<Token>) -> Option<f32> {
     let str = lex.slice();
-    // TODO
-    let options = &lexical::parse_float_options::STANDARD;
     let str = &str[..str.len() - 1];
-    lexical::parse_with_options::<f32, _, HEX_FORMAT>(str, options).ok()
+    lexical::parse_with_options::<f32, _, HEX_FORMAT>(str, &FLOAT_HEX_OPTIONS).ok()
 }
 
 fn parse_dec_f16(lex: &mut logos::Lexer<Token>) -> Option<f32> {
@@ -198,10 +196,8 @@ fn parse_dec_f64(lex: &mut logos::Lexer<Token>) -> Option<f64> {
 #[cfg(feature = "naga-ext")]
 fn parse_hex_f64(lex: &mut logos::Lexer<Token>) -> Option<f64> {
     let str = lex.slice();
-    // TODO
-    let options = &lexical::parse_float_options::STANDARD;
     let str = &str[..str.len() - 2];
-    lexical::parse_with_options::<f64, _, HEX_FORMAT>(str, options).ok()
+    lexical::parse_with_options::<f64, _, HEX_FORMAT>(str, &FLOAT_HEX_OPTIONS).ok()
 }
 
 fn parse_line_comment(lex: &mut logos::Lexer<Token>) {
@@ -497,7 +493,7 @@ pub enum Token {
     TemplateArgsEnd,
 
     // extension: wesl-imports
-    // https://github.com/wgsl-tooling-wg/wesl-spec/blob/imports-update/Imports.md
+    // https://github.com/webgpu-tools/wesl-spec/blob/imports-update/Imports.md
     // date: 2025-01-18, hash: 2db8e7f681087db6bdcd4a254963deb5c0159775
     #[cfg(feature = "imports")]
     #[token("::")]

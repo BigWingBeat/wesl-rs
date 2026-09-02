@@ -5,10 +5,12 @@
 ///
 /// Reference: <https://www.w3.org/TR/WGSL/#predeclared-types>
 pub const BUILTIN_TYPE_NAMES: &[&str] = &[
-    // abstract types cannot be spelled in user code.
+    // types that cannot be spelled in user code.
     // they are prefixed with `__`, which is not a valid WGSL identifier prefix.
     "__AbstractInt",
     "__AbstractFloat",
+    "__ref",
+    "__unknown",
     // plain types
     "bool",
     "f16",
@@ -30,10 +32,6 @@ pub const BUILTIN_TYPE_NAMES: &[&str] = &[
     "u64",
     #[cfg(feature = "naga-ext")]
     "f64",
-    #[cfg(feature = "naga-ext")]
-    "ray_query",
-    #[cfg(feature = "naga-ext")]
-    "acceleration_structure",
 ];
 
 /// Built-in type-generators identifiers.
@@ -74,6 +72,10 @@ pub const BUILTIN_TYPE_GENERATOR_NAMES: &[&str] = &[
     "texture_storage_1d_array",
     #[cfg(feature = "naga-ext")]
     "texture_multisampled_2d_array",
+    #[cfg(feature = "naga-ext")]
+    "ray_query",
+    #[cfg(feature = "naga-ext")]
+    "acceleration_structure",
 ];
 
 /// Built-in `struct` identifiers.
@@ -172,8 +174,13 @@ pub const BUILTIN_ENUMERANT_NAMES: &[&str] = &[
     "workgroup",
     "uniform",
     "storage",
-    #[cfg(feature = "naga-ext")]
     "immediate",
+    #[cfg(feature = "naga-ext")]
+    "task_payload",
+    #[cfg(feature = "naga-ext")]
+    "ray_payload",
+    #[cfg(feature = "naga-ext")]
+    "incoming_ray_payload",
     // : texel format
     "rgba8unorm",
     "rgba8snorm",
@@ -275,6 +282,7 @@ pub const BUILTIN_FUNCTION_NAMES: &[&str] = &[
     "determinant",
     "distance",
     "dot",
+    "dot4I8Packed",
     "dot4U8Packed",
     "exp",
     "exp2",
@@ -421,6 +429,9 @@ pub const BUILTIN_FUNCTION_NAMES: &[&str] = &[
     "getCommittedHitVertexPositions",
     #[cfg(feature = "naga-ext")]
     "getCandidateHitVertexPositions",
+    // : ray tracing pipelines (naga extension)
+    #[cfg(feature = "naga-ext")]
+    "traceRay",
 ];
 
 /// Built-in constructor identifiers (zero-value and value-constructors).
